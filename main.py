@@ -21,6 +21,10 @@ from matplotlib import cm
 # to get a reasonably functional web app without writing and javascript/css/html, however if you
 # web dev skills you can certainly make the app nicer if you like.
 
+volatilities = []
+prices = []
+strike_prices = []
+
 def show_view(model, name):
     model.target_url.set_value(name)  
 
@@ -42,18 +46,9 @@ class Model(gromit.Object):
     reactive behavior, but there are some caveats.   
     '''
     
-    
     @gromit.fn(gromit.Stored)
     def Input1(self):
         return 'Energy/CMECLopts'
-    
-    @gromit.fn(gromit.Stored)
-    def Input2(self):
-        return 2
-    
-    @gromit.fn
-    def Sum(self):
-        return self.Input1() + self.Input2()
     
     def getVolitility(self,call,strike_price,price,exp,today):
         
@@ -86,19 +81,21 @@ class Model(gromit.Object):
             return False
         
         print('Volatility:', vol)
+        return vol
+    
     def checkCallPrice(self,price, mean, std, strike_price, exp):
         today    = datetime.date(2018, 2, 20)
         dtm = (exp - today).days / 365.
-        d = (numpy.log(price / strike_price) + ((0.03 + std/2) * dtm)) / (numpy.sqrt(std)*numpy.sqrt(dtm))
-        d_two = (numpy.log(price / strike_price) + ((0.03 - std/2) * dtm)) / (numpy.sqrt(std)*numpy.sqrt(dtm))
-        bsm = price * (scipy.stats.norm(mean, std).pdf(d)) - (price * math.exp(-0.03*dtm)* scipy.stats.norm(mean,std).pdf(d_two))
+        d = (numpy.log(price / strike_price) + ((0.03 + std/2) * dtm)) / (std*numpy.sqrt(dtm))
+        d_two = (numpy.log(price / strike_price) + ((0.03 - std/2) * dtm)) / (std*numpy.sqrt(dtm))
+        bsm = price * (scipy.stats.norm(mean, std).pdf(d)) - (price * math.exp(-0.03*dtm) * scipy.stats.norm(mean,std).pdf(d_two))
         print(bsm)
         
     def checkPutPrice(self, price,  mean, std, strike_price, exp):
         today    = datetime.date(2018, 2, 20)
         dtm = (exp - today).days / 365.
-        d = (numpy.log(price / strike_price) + ((0.03 + std/2) * dtm)) / (numpy.sqrt(std)*numpy.sqrt(dtm))
-        d_two = (numpy.log(price / strike_price) + ((0.03 - std/2) * dtm)) / (numpy.sqrt(std)*numpy.sqrt(dtm))
+        d = (numpy.log(price / strike_price) + ((0.03 + std/2) * dtm)) / (std*numpy.sqrt(dtm))
+        d_two = (numpy.log(price / strike_price) + ((0.03 - std/2) * dtm)) / (std*numpy.sqrt(dtm))
         bsm = (price * math.exp(-0.03*dtm)* scipy.stats.norm(mean,std).pdf(d_two * -1)) - price * (scipy.stats.norm(mean, std).pdf(d * -1))
         print(bsm)
         
@@ -153,29 +150,38 @@ class Model(gromit.Object):
             
         values = option_curve.values()
         dates = option_curve.tenors()
-        prices = price_curve.values()
-        new_prices = []    
-        volitilities = []
-        strike_prices = []
+        price_curve = price_curve.values()   
         new_dates = []
+        global strike_prices
+        global prices
+        global volatilities
         for index,i in enumerate(values):
             for x in i:
-               volitility = self.getVolitility(x[0],float(x[1]),float(x[2]),datetime.datetime.strptime(str(dates[index]),'%b%y').date(),'test')
-               if(volitility) != False:
-                  volitilities.append(volitility)
-                  new_prices.append(prices[index])
+               volatility = self.getVolitility(x[0],float(x[1]),float(x[2]),datetime.datetime.strptime(str(dates[index]),'%b%y').date(),'test')
+               print(volatility)
+               print('vol')
+               if(volatility != False and volatility != None):
+                  volatilities.append(volatility)
+                  prices.append(price_curve[index])
                   strike_prices.append(x[1])
                   new_dates.append(datetime.datetime.strptime(str(dates[index]),'%b%y').date())
             
-        mean = sum(new_prices) 
-        std = numpy.std(new_prices)   
+        mean = sum(prices) 
+        std = numpy.std(prices)   
         print('here')
-        for index,volitility in enumerate(volitilities):
-            if volitility != False:
+        print(strike_prices)
+        for index,volatility in enumerate(volatilities):
+            if volatility != False:
                 if x[0]:
-                    self.checkCallPrice(new_prices[index], mean, std, strike_prices[index], new_dates[index])
+                    try:
+                        self.checkCallPrice(prices[index], mean, std, strike_prices[index], new_dates[index])
+                    except:
+                        print('fail')
                 else:
-                    self.checkPutPrice(new_prices[index], mean, std, strike_prices[index], new_dates[index])
+                    try:
+                        self.checkPutPrice(prices[index], mean, std, strike_prices[index], new_dates[index])
+                    except:
+                        print('fail')
     
 class AppController(SimpleAppController):
     '''
@@ -215,24 +221,34 @@ class AppController(SimpleAppController):
 # Please ignore anything that has to do with 'glint' which is an under-development next version of ui UI plantform
 #
 
-def volatility_plot():
-        
-    #We use matplotlib to to generate a chart. This is a popular python package.
+def volatility_plot(model):
     
+    #We use matplotlib to to generate a chart. This is a popular python package.
+    global prices
+    global volatilities
+    model.calcStockStuff()
+    min_price = min(prices)
+    max_price = max(prices)
+    min_vol = min(volatilities)
+    max_vol = max(volatilities)
     fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    X, Y, Z = axes3d.get_test_data(0.05)
-    ax.plot_surface(X, Y, Z, rstride=8, cstride=8, alpha=0.3)
-    cset = ax.contour(X, Y, Z, zdir='z', offset=-100, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='x', offset=-40, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='y', offset=40, cmap=cm.coolwarm)
+   # X, Y, Z = axes3d.get_test_data(0.05)
+   # ax.plot_surface(X, Y, rstride=8, cstride=8, alpha=0.3)
+        
+#    for index,price in enumerate(Model.prices):
+#        cset = ax.contour(X, Y, 
+    
+#    cset = ax.contour(X, Y, Z, zdir='z', offset=-100, cmap=cm.coolwarm)
+#    cset = ax.contour(X, Y, Z, zdir='x', offset=-40, cmap=cm.coolwarm)
+#    cset = ax.contour(X, Y, Z, zdir='y', offset=40, cmap=cm.coolwarm)
 
-    ax.set_xlabel('X')
-    ax.set_xlim(-40, 40)
-    ax.set_ylabel('Y')
-    ax.set_ylim(-40, 40)
-    ax.set_zlabel('Z')
-    ax.set_zlim(-100, 100)
+    plt.plot(prices, volatilities)
+    plt.ylabel('Volatility')
+    plt.xlabel('Strike Price')
+   # ax.set_xlabel('Strike')
+   # ax.set_xlim(min_price, max_price)
+   # ax.set_ylabel('Implied Volatility')
+   # ax.set_ylim(min_vol, max_vol)
 
     #Unfortunately you can't see it in your browser, the package shows the image on the remote machine
     #in amazon
@@ -243,76 +259,46 @@ def volatility_plot():
     import base64
     data_uri = base64.b64encode(open('temp.png', 'rb').read()).decode('utf-8').replace('\n','')
     img_tag = '<img src="data:image/png;base64,{0}">'.format(data_uri)
-    html = '<html>Volatility<b>%sFooter<b></html>' % img_tag
+    html = '<html>Volatility<b>%s<b></html>' % img_tag
 
     return html
 
 def pl_plot():
         
     #We use matplotlib to to generate a chart. This is a popular python package.
-    
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    X, Y, Z = axes3d.get_test_data(0.05)
-    ax.plot_surface(X, Y, Z, rstride=8, cstride=8, alpha=0.3)
-    cset = ax.contour(X, Y, Z, zdir='z', offset=-100, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='x', offset=-40, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='y', offset=40, cmap=cm.coolwarm)
-
-    ax.set_xlabel('X')
-    ax.set_xlim(-40, 40)
-    ax.set_ylabel('Y')
-    ax.set_ylim(-40, 40)
-    ax.set_zlabel('Z')
-    ax.set_zlim(-100, 100)
-
-    #Unfortunately you can't see it in your browser, the package shows the image on the remote machine
-    #in amazon
-    plt.show()
-    
-    #But we can create a temporary image and embed it directly into an html page
-    plt.savefig('temp.png')
-    import base64
-    data_uri = base64.b64encode(open('temp.png', 'rb').read()).decode('utf-8').replace('\n','')
-    img_tag = '<img src="data:image/png;base64,{0}">'.format(data_uri)
-    html = '<html>P&L<b>%sFooter<b></html>' % img_tag
+    html = '<html>P&L<b>Footer<b></html>'
 
     return html
 
-def greeks_plot():
+def greeks_plot(model):
         
     #We use matplotlib to to generate a chart. This is a popular python package.
-    
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    X, Y, Z = axes3d.get_test_data(0.05)
-    ax.plot_surface(X, Y, Z, rstride=8, cstride=8, alpha=0.3)
-    cset = ax.contour(X, Y, Z, zdir='z', offset=-100, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='x', offset=-40, cmap=cm.coolwarm)
-    cset = ax.contour(X, Y, Z, zdir='y', offset=40, cmap=cm.coolwarm)
-
-    ax.set_xlabel('X')
-    ax.set_xlim(-40, 40)
-    ax.set_ylabel('Y')
-    ax.set_ylim(-40, 40)
-    ax.set_zlabel('Z')
-    ax.set_zlim(-100, 100)
+    global strike_prices
+    global prices
+    model.calcStockStuff()
+    min_price = min(strike_prices)
+    max_price = max(strike_prices)
+    min_vol = min(prices)
+    max_vol = max(prices)
+    plt.plot(strike_prices, prices)
+    plt.ylabel('Asset Price')
+    plt.xlabel('Strike Price')
 
     #Unfortunately you can't see it in your browser, the package shows the image on the remote machine
     #in amazon
     plt.show()
     
     #But we can create a temporary image and embed it directly into an html page
-    plt.savefig('temp.png')
+    plt.savefig('delta_temp.png')
     import base64
-    data_uri = base64.b64encode(open('temp.png', 'rb').read()).decode('utf-8').replace('\n','')
-    img_tag = '<img src="data:image/png;base64,{0}">'.format(data_uri)
-    html = '<html>Greeks<b>%sFooter<b></html>' % img_tag
+    delta_data_uri = base64.b64encode(open('delta_temp.png', 'rb').read()).decode('utf-8').replace('\n','')
+    delta_img_tag = '<img src="data:image/png;base64,{0}">'.format(delta_data_uri)
+    html = '<html>Greeks<b>Delta%s<b></html>' % delta_img_tag
 
     return html
 
 class MainView(SimpleAppView):
-    def __init__(self, model):
+    def __init__(self,model):
         content = VList([
             '<h2>Volatility, P&L, and the Greeks</h2>',
             Button('Stock', on_click=partial(show_view, model, './#/stock')),
@@ -339,8 +325,8 @@ class StockView(SimpleAppView):
 
         
         
-def volatility_view():
-    html = volatility_plot()
+def volatility_view(model):
+    html = volatility_plot(model)
     
     return html  
 
@@ -349,15 +335,15 @@ def pl_view():
     
     return html  
 
-def greeks_view():
-    html = greeks_plot()
+def greeks_view(model):
+    html = greeks_plot(model)
     
     return html  
         
 class VolatilityView(SimpleAppView):
     def __init__(self,model,inner_model,controller):
         content = [
-            volatility_view()
+            volatility_view(inner_model)
         ]
         super().__init__(content, view_name='volatility')
         
@@ -372,7 +358,7 @@ class PLView(SimpleAppView):
 class GreeksView(SimpleAppView):
     def __init__(self,model,inner_model,controller):
         content = [
-            greeks_view()
+            greeks_view(inner_model)
         ]
         super().__init__(content, view_name='greeks')
 
